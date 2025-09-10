@@ -14,6 +14,7 @@ const ContentScript = () => {
   useEffect(() => {
     const setupDetection = async () => {
       try {
+  console.log('[compliance] content script loaded', window.location.href)
         const url = window.location.href
         if (url.includes("amazon.")) {
           await detectAndProcessAmazonProducts()
