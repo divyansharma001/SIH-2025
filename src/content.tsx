@@ -1,48 +1,40 @@
-import cssText from "data-text:~style.css"
+import { useEffect } from "react"
 import type { PlasmoCSConfig } from "plasmo"
 
-import { CountButton } from "~features/count-button"
+import { detectAmazonProducts } from "~hooks/detectProductsDetails/amazon"
+import { detectFlipkartProducts } from "~hooks/detectProductsDetails/flipkart"
+import { detectZeptoProducts } from "~hooks/detectProductsDetails/zepto"
 
 export const config: PlasmoCSConfig = {
-  matches: ["<all_urls>"]
+  matches: [
+    "https://www.amazon.com/*",
+    "https://www.flipkart.com/*",
+    "https://www.zepto.com/*"
+  ]
 }
 
-/**
- * Generates a style element with adjusted CSS to work correctly within a Shadow DOM.
- *
- * Tailwind CSS relies on `rem` units, which are based on the root font size (typically defined on the <html>
- * or <body> element). However, in a Shadow DOM (as used by Plasmo), there is no native root element, so the
- * rem values would reference the actual page's root font size—often leading to sizing inconsistencies.
- *
- * To address this, we:
- * 1. Replace the `:root` selector with `:host(plasmo-csui)` to properly scope the styles within the Shadow DOM.
- * 2. Convert all `rem` units to pixel values using a fixed base font size, ensuring consistent styling
- *    regardless of the host page's font size.
- */
-export const getStyle = (): HTMLStyleElement => {
-  const baseFontSize = 16
+const ContentScript = () => {
+  useEffect(() => {
+    const setupDetection = async () => {
+      try {
+        const url = window.location.href
 
-  let updatedCssText = cssText.replaceAll(":root", ":host(plasmo-csui)")
-  const remRegex = /([\d.]+)rem/g
-  updatedCssText = updatedCssText.replace(remRegex, (match, remValue) => {
-    const pixelsValue = parseFloat(remValue) * baseFontSize
+        if (url.includes("amazon.")) {
+          detectAmazonProducts()
+        } else if (url.includes("flipkart.com")) {
+          detectFlipkartProducts()
+        } else if (url.includes("zepto")) {
+          detectZeptoProducts()
+        }
+      } catch (error) {
+        console.error("Error in setupDetection:", error)
+      }
+    }
 
-    return `${pixelsValue}px`
-  })
+    setupDetection()
+  }, [window.location.href])
 
-  const styleElement = document.createElement("style")
-
-  styleElement.textContent = updatedCssText
-
-  return styleElement
+  return null
 }
 
-const PlasmoOverlay = () => {
-  return (
-    <div className="plasmo-z-50 plasmo-flex plasmo-fixed plasmo-top-32 plasmo-right-8">
-      <CountButton />
-    </div>
-  )
-}
-
-export default PlasmoOverlay
+export default ContentScript
