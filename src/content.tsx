@@ -1,15 +1,12 @@
 import { useEffect } from "react"
 import type { PlasmoCSConfig } from "plasmo"
 
-import { detectAmazonProducts } from "~hooks/detectProductsDetails/amazon"
-import { detectFlipkartProducts } from "~hooks/detectProductsDetails/flipkart"
-import { detectZeptoProducts } from "~hooks/detectProductsDetails/zepto"
+import { detectAndProcessAmazonProducts } from "~hooks/detectProductsDetails/amazon"
 
 export const config: PlasmoCSConfig = {
   matches: [
-    "https://www.amazon.com/*",
-    "https://www.flipkart.com/*",
-    "https://www.zepto.com/*"
+    "https://*.amazon.com/*",
+    "https://*.amazon.in/*"
   ]
 }
 
@@ -18,13 +15,8 @@ const ContentScript = () => {
     const setupDetection = async () => {
       try {
         const url = window.location.href
-
         if (url.includes("amazon.")) {
-          detectAmazonProducts()
-        } else if (url.includes("flipkart.com")) {
-          detectFlipkartProducts()
-        } else if (url.includes("zepto")) {
-          detectZeptoProducts()
+          await detectAndProcessAmazonProducts()
         }
       } catch (error) {
         console.error("Error in setupDetection:", error)
@@ -32,7 +24,26 @@ const ContentScript = () => {
     }
 
     setupDetection()
-  }, [window.location.href])
+
+    const originalPushState = history.pushState
+    history.pushState = function (...args) {
+      const ret = originalPushState.apply(this, args as any)
+      window.dispatchEvent(new Event("locationchange"))
+      return ret
+    }
+
+    const onLocationChange = () => {
+      setupDetection()
+    }
+
+    window.addEventListener("popstate", () => window.dispatchEvent(new Event("locationchange")))
+    window.addEventListener("locationchange", onLocationChange)
+
+    return () => {
+      history.pushState = originalPushState
+      window.removeEventListener("locationchange", onLocationChange)
+    }
+  }, [])
 
   return null
 }
