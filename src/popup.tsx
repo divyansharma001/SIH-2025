@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react"
+import { useState, useEffect, useMemo } from "react"
 
 // Mock components for demonstration
 const Settings = () => (
@@ -144,22 +144,95 @@ function IndexPopup() {
   const [detectionResult, setDetectionResult] = useState<DetectionResult | null>(null)
   const [currentSite, setCurrentSite] = useState<string>("Amazon")
   const [products, setProducts] = useState<Product[]>([])
+  const [showAllProducts, setShowAllProducts] = useState(false)
+
+  // Simulated catalog per platform (titles only to keep bundle small)
+  const catalog = useMemo(() => ({
+    Amazon: [
+      "Wireless Noise-Cancelling Headphones",
+      "4K Ultra HD Smart TV",
+      "Portable Bluetooth Speaker",
+      "Ergonomic Office Chair",
+      "Stainless Steel Water Bottle",
+      "USB-C Fast Charger 65W",
+      "Gaming Mechanical Keyboard",
+      "Smart LED Light Bulb (4-Pack)",
+      "Action Camera 4K",
+      "Laptop Backpack Waterproof"
+    ],
+    Flipkart: [
+      "Android Smartphone 5G 8GB/128GB",
+      "Air Purifier with HEPA Filter",
+      "Microwave Oven 28L Convection",
+      "Fitness Smartwatch AMOLED",
+      "Cordless Vacuum Cleaner",
+      "Inverter Refrigerator 260L",
+      "Front Load Washing Machine",
+      "True Wireless Earbuds",
+      "Tablet 10.5-inch LTE",
+      "Electric Kettle 1.8L"
+    ],
+    Zepto: [
+      "Organic Bananas 1kg",
+      "Farm Fresh Eggs (12 Pack)",
+      "Whole Wheat Bread 400g",
+      "Almond Milk Unsweetened 1L",
+      "Roasted Almonds 200g",
+      "Greek Yogurt 500g",
+      "Arabica Coffee Beans 250g",
+      "Extra Virgin Olive Oil 1L",
+      "Basmati Rice 5kg",
+      "Dark Chocolate 70% 100g"
+    ]
+  }), [])
+
+  const getRandomPrice = (site: string) => {
+    const base = Math.random() * (site === "Zepto" ? 20 : 500) + (site === "Zepto" ? 1 : 10)
+    // Flipkart uses ₹, Amazon uses $, Zepto we'll keep ₹ for local groceries
+    const symbol = site === "Amazon" ? "$" : "₹"
+    return `${symbol}${base.toFixed(2)}`
+  }
+
+  const picsum = (seed: string) => `https://picsum.photos/seed/${encodeURIComponent(seed)}/96/96`
+
+  const shuffle = <T,>(arr: T[]): T[] => arr
+    .map((a) => ({ sort: Math.random(), value: a }))
+    .sort((a, b) => a.sort - b.sort)
+    .map(({ value }) => value)
+
+  const generateRandomProducts = (site: string): Product[] => {
+    const titles = shuffle(catalog[site as keyof typeof catalog])
+    const count = 5 + Math.floor(Math.random() * 4) // 5-8 products
+    const selected = titles.slice(0, count)
+    return selected.map((t, i) => ({
+      title: t,
+      price: getRandomPrice(site),
+      image: picsum(`${site}-${t}-${Date.now()}-${i}-${Math.random()}`),
+      link: "#" // simulated
+    }))
+  }
 
   const handleDetectProducts = async () => {
     setIsDetecting(true)
     setDetectionResult(null)
+    setShowAllProducts(false)
+
+    // Refresh the product set each scan to ensure different detections every time
+    const newProducts = generateRandomProducts(currentSite)
+    setProducts(newProducts)
     
-    // Simulate detection process
+    // Simulate detection process with random flags
     setTimeout(() => {
-      setDetectionResult({ 
-        data: { 
-          products: products.map((_, i) => ({ 
-            isSafe: Math.random() > 0.3 
-          })) 
-        } 
-      })
+      const analysis = newProducts.map(() => ({
+        // 35% chance to flag to make defects visible sometimes
+        isSafe: Math.random() > 0.35
+      }))
+      const flaggedCount = analysis.filter(a => !a.isSafe).length
+      setDetectionResult({ data: { products: analysis, flaggedCount } })
+      // If there are defects, automatically reveal more items
+      if (flaggedCount > 0) setShowAllProducts(true)
       setIsDetecting(false)
-    }, 2000)
+    }, 1200)
   }
 
   const getSiteIcon = () => {
@@ -198,10 +271,12 @@ function IndexPopup() {
       borderRadius: '16px',
       boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)',
       margin: '20px',
-      height: 'calc(100% - 40px)',
-      overflow: 'hidden',
-      position: 'relative' as const,
-      zIndex: 1
+  height: 'calc(100% - 40px)',
+  overflow: 'hidden',
+  position: 'relative' as const,
+  zIndex: 1,
+  display: 'flex',
+  flexDirection: 'column' as const
     },
     header: {
       background: '#3b82f6',
@@ -261,12 +336,12 @@ function IndexPopup() {
       filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.1))'
     },
     content: {
-      padding: '24px',
-      height: 'calc(100% - 120px)',
-      overflowY: 'auto' as const,
-      display: 'flex',
-      flexDirection: 'column' as const,
-      gap: '20px'
+  padding: '24px',
+  overflowY: 'auto' as const,
+  display: 'flex',
+  flexDirection: 'column' as const,
+  gap: '20px',
+  flex: 1
     },
     statusCard: {
       background: '#f8fafc',
@@ -280,9 +355,9 @@ function IndexPopup() {
       position: 'absolute' as const,
       top: 0,
       right: 0,
-      width: '100px',
-      height: '100px',
-      background: 'radial-gradient(circle, rgba(102, 126, 234, 0.1) 0%, transparent 70%)',
+      width: '72px',
+      height: '72px',
+      background: 'radial-gradient(circle, rgba(102, 126, 234, 0.08) 0%, transparent 70%)',
       borderRadius: '50%',
       transform: 'translate(30px, -30px)'
     },
@@ -380,6 +455,17 @@ function IndexPopup() {
       padding: '20px',
       boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)'
     },
+    supportCard: {
+      background: 'white',
+      border: '1px solid #e5e7eb',
+      borderRadius: '16px',
+      padding: '16px',
+      boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      gap: '12px'
+    },
     productsCard: {
       background: 'white',
       border: '1px solid #e5e7eb',
@@ -410,7 +496,7 @@ function IndexPopup() {
       display: 'flex',
       flexDirection: 'column' as const,
       gap: '12px',
-      maxHeight: '200px',
+      maxHeight: '280px',
       overflowY: 'auto' as const
     },
     moreProducts: {
@@ -418,6 +504,15 @@ function IndexPopup() {
       padding: '16px 0',
       fontSize: '14px',
       color: '#6b7280'
+    },
+    showMoreBtn: {
+      background: '#f3f4f6',
+      border: '1px solid #e5e7eb',
+      padding: '8px 12px',
+      borderRadius: '10px',
+      fontSize: '13px',
+      fontWeight: 600,
+      cursor: 'pointer' as const
     },
     footer: {
       textAlign: 'center' as const,
@@ -428,6 +523,14 @@ function IndexPopup() {
       marginTop: 'auto'
     }
   }
+
+  // On open, simulate being on a supported site and seed initial products
+  useEffect(() => {
+    const sites = ["Amazon", "Flipkart", "Zepto"]
+    const site = sites[Math.floor(Math.random() * sites.length)]
+    setCurrentSite(site)
+    setProducts(generateRandomProducts(site))
+  }, [])
 
   return (
     <div style={popupStyles.container}>
@@ -552,6 +655,16 @@ function IndexPopup() {
             </div>
           )}
 
+          {/* Supported Platforms */}
+          <div style={popupStyles.supportCard}>
+            <div style={{ fontSize: '14px', fontWeight: 700, color: '#0f172a' }}>Supported Platforms</div>
+            <div style={{ display: 'flex', gap: '10px' }}>
+              <span title="Amazon" style={{ background: '#f3f4f6', border: '1px solid #e5e7eb', padding: '6px 10px', borderRadius: '9999px', fontWeight: 700, fontSize: '12px' }}>🛒 Amazon</span>
+              <span title="Flipkart" style={{ background: '#f3f4f6', border: '1px solid #e5e7eb', padding: '6px 10px', borderRadius: '9999px', fontWeight: 700, fontSize: '12px' }}>🛍️ Flipkart</span>
+              <span title="Zepto" style={{ background: '#f3f4f6', border: '1px solid #e5e7eb', padding: '6px 10px', borderRadius: '9999px', fontWeight: 700, fontSize: '12px' }}>⚡ Zepto</span>
+            </div>
+          </div>
+
           {/* Statistics */}
           <div style={popupStyles.statsCard}>
             <ProductStats />
@@ -563,11 +676,11 @@ function IndexPopup() {
               <div style={popupStyles.productsHeader}>
                 <h3 style={popupStyles.productsTitle}>Detected Products</h3>
                 <span style={popupStyles.productsCount}>
-                  {products.length} found
+                  {products.length} found{detectionResult?.data?.flaggedCount ? ` • ${detectionResult.data.flaggedCount} flagged` : ""}
                 </span>
               </div>
               <div style={popupStyles.productsList}>
-                {products.slice(0, 3).map((product, index) => (
+                {(showAllProducts ? products : products.slice(0, 6)).map((product, index) => (
                   <ProductCard
                     key={index}
                     product={product}
@@ -577,9 +690,11 @@ function IndexPopup() {
                     analysisResult={detectionResult?.data?.products?.[index]}
                   />
                 ))}
-                {products.length > 3 && (
-                  <div style={popupStyles.moreProducts}>
-                    <p>+{products.length - 3} more products detected</p>
+                {products.length > 6 && !showAllProducts && (
+                  <div style={{ ...popupStyles.moreProducts, display: 'flex', justifyContent: 'center' }}>
+                    <button style={popupStyles.showMoreBtn} onClick={() => setShowAllProducts(true)}>
+                      Show {products.length - 6} more products
+                    </button>
                   </div>
                 )}
               </div>
