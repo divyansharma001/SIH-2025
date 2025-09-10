@@ -1,7 +1,6 @@
 import { useEffect } from "react"
 import type { PlasmoCSConfig } from "plasmo"
 
-import { detectAndProcessAmazonProducts } from "~hooks/detectProductsDetails/amazon"
 
 export const config: PlasmoCSConfig = {
   matches: [
@@ -17,7 +16,8 @@ const ContentScript = () => {
   console.log('[compliance] content script loaded', window.location.href)
         const url = window.location.href
         if (url.includes("amazon.")) {
-          await detectAndProcessAmazonProducts()
+          const mod = await import("~hooks/detectProductsDetails/amazon")
+          await mod.detectAndProcessAmazonProducts()
         }
       } catch (error) {
         console.error("Error in setupDetection:", error)
@@ -25,6 +25,16 @@ const ContentScript = () => {
     }
 
     setupDetection()
+
+    const messageListener = (message: any, sender: any, sendResponse: any) => {
+      if (message?.action === "rescan") {
+        console.log("[compliance] Rescan requested from popup")
+        setupDetection()
+        sendResponse({ status: "scan_started" })
+      }
+      return true
+    }
+    chrome.runtime.onMessage.addListener(messageListener)
 
     const originalPushState = history.pushState
     history.pushState = function (...args) {
@@ -42,7 +52,8 @@ const ContentScript = () => {
 
     return () => {
       history.pushState = originalPushState
-      window.removeEventListener("locationchange", onLocationChange)
+  window.removeEventListener("locationchange", onLocationChange)
+  chrome.runtime.onMessage.removeListener(messageListener)
     }
   }, [])
 

@@ -53,3 +53,35 @@ const handler: PlasmoMessaging.MessageHandler = async (req, res) => {
 }
 
 export default handler
+
+try {
+  if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage) {
+    chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+      if (msg?.name === 'complianceChecker' && Array.isArray(msg?.body?.products)) {
+        try {
+          const results = (msg.body.products as Product[]).map(checkCompliance)
+          sendResponse({ results })
+        } catch (err) {
+          sendResponse({ error: 'Background processing failed' })
+        }
+        return true
+      }
+
+      if (msg?.action === 'persistResults' && msg?.tabId && Array.isArray(msg?.results)) {
+        try {
+          const key = msg.tabId
+          const payload = { products: msg.products || [], results: msg.results, timestamp: Date.now() }
+          chrome.storage.local.set({ [key]: payload }, () => {
+            sendResponse({ ok: true })
+          })
+          return true
+        } catch (e) {
+          console.warn('[compliance][background] persistResults failed', e)
+          sendResponse({ ok: false })
+        }
+      }
+    })
+  }
+} catch (e) {
+  console.warn('Could not attach runtime.onMessage listener in background:', e)
+}

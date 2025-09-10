@@ -114,7 +114,7 @@ export const detectAndProcessAmazonProducts = async () => {
           title: titleElement?.textContent?.trim() || "",
           price: priceElement?.textContent?.trim() || "",
           image: imageElement?.getAttribute('src') || "",
-          link: href,
+          link: asin,
           asin
         };
 
@@ -159,6 +159,15 @@ export const detectAndProcessAmazonProducts = async () => {
     console.log("[compliance] Received compliance results in content script:", response);
 
     if (response?.results) {
+      try {
+        const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
+        if (tab?.id) {
+          await chrome.storage.local.set({ [tab.id]: { products, results: response.results, timestamp: Date.now() } })
+        }
+      } catch (e) {
+        console.warn('[compliance] could not persist results to storage', e)
+      }
+
       response.results.forEach((result: any) => {
         console.log('[compliance][result]', result);
         const elementToUpdate = document.querySelector(`[data-product-id="${result.link}"]`) as HTMLElement;
