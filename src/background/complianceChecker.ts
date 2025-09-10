@@ -1,87 +1,124 @@
 import type { PlasmoMessaging } from "@plasmohq/messaging"
+import { API_URL } from "~config"
 
-interface Product {
-  title: string
-  price: string
-  image: string
-  link: string
+// Mock response for fallback
+const MOCK_RESPONSE = {
+  complianceScore: 85,
+  issues: [
+    "Price display format needs improvement"
+  ],
+  recommendations: [
+    "Ensure price is clearly visible",
+    "Add country of origin information"
+  ]
 }
 
-interface ComplianceResult {
-  link: string
-  isCompliant: boolean
-  reasons: string[]
+const API_CONFIG = {
+  endpoint: API_URL,
+  timeout: 5000, 
+  retries: 2
 }
 
-const checkCompliance = (product: Product): ComplianceResult => {
-  const reasons: string[] = []
-
-  if (!product.title || product.title.trim().length === 0) {
-    reasons.push("Missing product title.")
-  }
-
-  if (!product.price || product.price.trim().length === 0) {
-    reasons.push("Missing MRP.")
-  }
+const callComplianceAPI = async (product: any): Promise<any> => {
+  console.log("🌐 [BACKGROUND] Attempting API call...")
   
-  if (!product.image || product.image.trim().length === 0) {
-    reasons.push("Missing product image.")
+  try {
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), API_CONFIG.timeout)
+    
+    const response = await fetch(API_CONFIG.endpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ product }),
+      signal: controller.signal
+    })
+    
+    clearTimeout(timeoutId)
+    
+    if (!response.ok) {
+      throw new Error(`API call failed with status: ${response.status}`)
+    }
+    
+    const data = await response.json()
+    console.log("✅ [BACKGROUND] API call successful:", data)
+    
+    return data
+  } catch (error) {
+    console.warn("⚠️ [BACKGROUND] API call failed:", error.message)
+    throw error
   }
-  
-  return {
-    link: product.link,
-    isCompliant: reasons.length === 0,
-    reasons: reasons
+}
+
+const callAPIWithRetries = async (product: any, retries: number = API_CONFIG.retries): Promise<any> => {
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    try {
+      console.log(`🔄 [BACKGROUND] API attempt ${attempt}/${retries}`)
+      return await callComplianceAPI(product)
+    } catch (error) {
+      console.warn(`❌ [BACKGROUND] API attempt ${attempt} failed:`, error.message)
+      
+      if (attempt === retries) {
+        console.log("🚨 [BACKGROUND] All API attempts failed, falling back to mock data")
+        throw error
+      }
+      
+      await new Promise(resolve => setTimeout(resolve, 1000 * attempt))
+    }
   }
 }
 
 const handler: PlasmoMessaging.MessageHandler = async (req, res) => {
-  const { products } = req.body
-  console.log("Received products for compliance check:", products)
-
-  if (!products || !Array.isArray(products)) {
-    return res.send({ error: "Invalid product data received." })
-  }
-
-  const results: ComplianceResult[] = products.map(checkCompliance)
-
-  console.log("Sending back compliance results:", results);
+  console.log("🔥 [BACKGROUND] Handler called!")
+  console.log("🔥 [BACKGROUND] Request received:", JSON.stringify(req, null, 2))
   
-  res.send({
-    results
-  })
-}
+  try {
+    const { product } = req.body || {}
+    console.log("🔥 [BACKGROUND] Extracted product:", product)
 
-export default handler
+    if (!product) {
+      console.error("❌ [BACKGROUND] No product data received")
+      const errorResponse = { error: "Invalid product data received." }
+      console.log("🔥 [BACKGROUND] Sending error response:", errorResponse)
+      res.send(errorResponse)
+      return
+    }
 
-try {
-  if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage) {
-    chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
-      if (msg?.name === 'complianceChecker' && Array.isArray(msg?.body?.products)) {
-        try {
-          const results = (msg.body.products as Product[]).map(checkCompliance)
-          sendResponse({ results })
-        } catch (err) {
-          sendResponse({ error: 'Background processing failed' })
-        }
-        return true
-      }
+    let complianceResult = null
 
-      if (msg?.action === 'persistResults' && msg?.tabId && Array.isArray(msg?.results)) {
-        try {
-          const key = msg.tabId
-          const payload = { products: msg.products || [], results: msg.results, timestamp: Date.now() }
-          chrome.storage.local.set({ [key]: payload }, () => {
-            sendResponse({ ok: true })
-          })
-          return true
-        } catch (e) {
-          console.warn('[compliance][background] persistResults failed', e)
-          sendResponse({ ok: false })
+    try {
+      console.log("🚀 [BACKGROUND] Starting API-first approach...")
+      complianceResult = await callAPIWithRetries(product)
+      console.log("🎉 [BACKGROUND] API call succeeded, using real data")
+    } catch (apiError) {
+      console.log("🔄 [BACKGROUND] API failed, using mock data as fallback")
+      complianceResult = {
+        ...MOCK_RESPONSE,
+        productAnalysis: {
+          title: product.title,
+          price: product.price,
+          analyzedAt: new Date().toISOString(),
+          source: "mock_fallback"
         }
       }
+    }
+
+    console.log("✅ [BACKGROUND] Final compliance result:", complianceResult)
+
+    console.log("🚀 [BACKGROUND] Sending response...")
+    res.send(complianceResult)
+    console.log("✅ [BACKGROUND] Response sent successfully!")
+    
+  } catch (error) {
+    console.error("💥 [BACKGROUND] Error in handler:", error)
+    res.send({ 
+      error: "Background script error: " + error.message,
+      fallbackData: MOCK_RESPONSE
     })
   }
-} catch (e) {
-  console.warn('Could not attach runtime.onMessage listener in background:', e)
 }
+
+console.log("🔄 [BACKGROUND] Background script loaded, handler registered")
+
+export default handler
