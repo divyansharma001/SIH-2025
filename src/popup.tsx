@@ -9,6 +9,9 @@ interface Product {
   price: string
   image: string
   link: string
+  complianceScore?: number
+  issues?: any[]
+  recommendations?: any[]
 }
 
 interface DetectionResult {
@@ -25,56 +28,76 @@ function IndexPopup() {
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    const fetchDataForTab = async (tabId: number) => {
-      if (!tabId) return
+    const fetchDataForCurrentTab = async () => {
       setIsDetecting(true)
       setError(null)
+      
       try {
-        const data = await chrome.storage.local.get(String(tabId))
-        const tabData = data[String(tabId)]
+        const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
+        
+        if (!tab.url || !tab.url.includes("amazon.")) {
+          setCurrentSite("Unsupported Site")
+          setError("This extension only supports Amazon product pages.")
+          setIsDetecting(false)
+          setProducts([])
+          return
+        }
 
-        if (tabData && tabData.products) {
-          setProducts(tabData.products)
-          const analysis = tabData.results.map((r: any) => ({ isSafe: r.isCompliant }))
-          const flaggedCount = analysis.filter((a: any) => !a.isSafe).length
-          setDetectionResult({ data: { products: analysis, flaggedCount } })
+        setCurrentSite("Amazon")
+        
+        const hostname = new URL(tab.url).hostname
+        const allData = await chrome.storage.local.get()
+        
+        let foundData = null
+        for (const [key, value] of Object.entries(allData)) {
+          if (key.startsWith(`compliance_${hostname}`)) {
+            foundData = value
+            break
+          }
+        }
+        
+        if (foundData && foundData.product && foundData.result) {
+          const product: Product = {
+            title: foundData.product.title || 'Unknown Product',
+            price: foundData.product.price || 'Price not found',
+            image: foundData.product.images?.[0] || '',
+            link: foundData.product.productUrl || tab.url,
+            complianceScore: foundData.result.complianceScore,
+            issues: foundData.result.issues || [],
+            recommendations: foundData.result.recommendations || []
+          }
+          
+          setProducts([product])
+          
+          const isSafe = foundData.result.complianceScore > 80
+          const flaggedCount = isSafe ? 0 : 1
+          
+          setDetectionResult({ 
+            data: { 
+              products: [{ isSafe }], 
+              flaggedCount 
+            } 
+          })
+          
           if (flaggedCount > 0) setShowAllProducts(true)
         } else {
-          setError("No products detected. Try refreshing or re-scanning the page.")
+          setError("No products detected. Try clicking 'Scan Products on Page' first.")
           setProducts([])
           setDetectionResult(null)
         }
       } catch (e) {
+        console.error('Error fetching data:', e)
         setError("An error occurred while fetching data.")
       } finally {
         setIsDetecting(false)
       }
     }
 
-    const setup = async () => {
-      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
-
-      if (!tab.url || !tab.url.includes("amazon.")) {
-        setCurrentSite("Unsupported Site")
-        setError("This extension only supports Amazon product pages.")
-        setIsDetecting(false)
-        setProducts([])
-        return
-      }
-
-      setCurrentSite("Amazon")
-      await fetchDataForTab(tab.id as number)
-    }
-
-    setup()
+    fetchDataForCurrentTab()
 
     const storageListener = (changes: any, area: string) => {
       if (area === "local") {
-        chrome.tabs.query({ active: true, currentWindow: true }, ([tab]) => {
-          if (tab && tab.id && changes[String(tab.id)]) {
-            fetchDataForTab(tab.id as number)
-          }
-        })
+        fetchDataForCurrentTab()
       }
     }
 
@@ -85,11 +108,21 @@ function IndexPopup() {
   const handleDetectProducts = async () => {
     setIsDetecting(true)
     setError(null)
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
-    if (tab && tab.id) {
-      await chrome.runtime.sendMessage({ action: "rescan" })
-    } else {
-      setError("Could not find an active Amazon tab to scan.")
+    
+    try {
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
+      
+      if (!tab || !tab.id) {
+        setError("Could not find an active tab to scan.")
+        setIsDetecting(false)
+        return
+      }
+
+      await chrome.tabs.sendMessage(tab.id, { action: "rescan" })
+      
+    } catch (e) {
+      console.error('Error triggering scan:', e)
+      setError("Could not communicate with the page. Try refreshing the page first.")
       setIsDetecting(false)
     }
   }
@@ -117,7 +150,6 @@ function IndexPopup() {
         </header>
 
         <main className="plasmo-flex-1 plasmo-p-5 plasmo-overflow-y-auto plasmo-space-y-4">
-          {/* Status & Scan Button */}
           <div className="plasmo-bg-white plasmo-p-4 plasmo-rounded-xl plasmo-shadow-soft">
             <div className="plasmo-flex plasmo-items-center plasmo-justify-between plasmo-mb-4">
               <div>
